@@ -53,10 +53,14 @@ unchanged, and the license also ships inside the package.
 
 ## Compatibility
 
-Tested only on an **iPhone 8 Plus (A11, arm64)**, iOS 16.7, Dopamine. The package also
-contains an arm64e build for A12 and newer devices, but it's built with the older arm64e
-ABI and **hasn't been tested on an arm64e device**. Reports from A12+ devices are very
-welcome in [Issues](https://github.com/Jond-ie/repo/issues).
+Tested on an **iPhone 8 Plus (A11, arm64)**, iOS 16.7, Dopamine.
+
+**A12 and newer (arm64e):** builds up to `0.2.0-rootless1` put A12+ devices into safe mode.
+Their arm64e slice used the old, unversioned pointer-authentication ABI (Mach-O cpusubtype
+`0x2`), and iOS 15–16 needs the versioned ABI (`0x80000002`). `0.2.0-rootless2` was an
+arm64-only stopgap. `0.2.0-rootless3` is built with Xcode's clang and has a correct arm64e
+slice, but it **hasn't been confirmed on a real A12+ device yet**. Reports are very welcome
+in [Issues](https://github.com/Jond-ie/repo/issues).
 
 ## Known caveat: the mic AGC subtype
 
@@ -74,6 +78,13 @@ Requires [Theos](https://theos.dev) with the rootless scheme.
 ```bash
 make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 ```
+
+**Your toolchain must emit the versioned arm64e ABI.** Xcode's clang does. Some Linux
+toolchains (e.g. open-source Apple clang 13) don't: they build an arm64e slice marked `0x2`
+that crashes A12+ devices, and the linker warns `built with an incompatible arm64e ABI
+compiler`. Check the result: every binary's arm64e slice should have cpusubtype
+`0x80000002`. If your toolchain can't do that, build `ARCHS=arm64` only. Release packages
+are built on a macOS GitHub Actions runner (Xcode clang, iPhoneOS 16.5 SDK).
 
 The package is written to `packages/`. To install directly, set `THEOS_DEVICE_IP` and run
 `make package install FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless`.
