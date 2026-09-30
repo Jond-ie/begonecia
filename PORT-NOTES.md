@@ -103,5 +103,5 @@ toggles live.
 
 ## Attribution
 
-Original: https://github.com/Nepeta/BegoneCIA — MIT. `LICENSE` retained. This port
+Original: https://github.com/larygwil/BegoneCIA (unofficial mirror; Nepeta's repo is no longer online) — MIT. `LICENSE` retained. This port
 keeps the original bundle id and code; credit for the actual technique is Nepeta's.

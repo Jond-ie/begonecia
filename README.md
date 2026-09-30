@@ -1,7 +1,8 @@
 # Begonecia (rootless)
 
-A **rootless port** of [**BegoneCIA** by Eva (Nepeta)](https://github.com/Nepeta/BegoneCIA) for
-Dopamine on iOS 15–16.
+A **rootless port** of [**BegoneCIA** by Eva (Nepeta)](https://github.com/larygwil/BegoneCIA) for
+Dopamine on iOS 15–16. (Nepeta's own repository is no longer online; the link is an
+unofficial mirror of the original source.)
 
 It's a Control Center toggle that silences the **microphone, camera and location** system-wide.
 While it's on, apps don't get a permission error, they just get nothing: silent mic audio,
