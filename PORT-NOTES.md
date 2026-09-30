@@ -26,7 +26,7 @@ be; only what rootless + iOS 16 requires was changed. My earlier from-scratch
   install it from Chariz first or dpkg leaves the package unconfigured).
 - **CC private headers**: taken straight from the repo (`Module/ControlCenterUIKit/`),
   so nothing needs class-dumping off the device.
-- **`ControlCenterUIKit.tbd`**: patched to advertise `arm64e` as well, since A11+
+- **`ControlCenterUIKit.tbd`**: patched to advertise `arm64e` as well, since A12+
   system processes (SpringBoard, mediaserverd) are arm64e. Symbols are unchanged.
 - The tweak source itself has **no filesystem path literals**, so no `/var/jb`
   path-rewriting was needed there.
@@ -78,7 +78,10 @@ type/subtype mediaserverd and apps process (first sighting only).
 ## Known build warnings (harmless)
 
 - `built with an incompatible arm64e ABI compiler`: the Linux toolchain emits the
-  old arm64e ABI. It loads fine on Dopamine (verified in SpringBoard/mediaserverd).
+  old arm64e ABI. **Correction:** the test device (iPhone 8 Plus, A11) is arm64, not
+  arm64e, so only the arm64 slice was ever loaded. Whether the old-ABI arm64e slice
+  loads on A12+ devices is untested; Theos's documentation says old-ABI arm64e
+  binaries don't load into arm64e processes on iOS 14+.
 - `ControlCenterUIKit.tbd … out of sync`: ld message only; links correctly.
 
 ## Build & deploy
