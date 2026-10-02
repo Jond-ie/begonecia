@@ -1,6 +1,6 @@
 Package: com.johndie.begonecia
 Name: BegoneCIA (rootless)
-Version: 0.2.0-rootless3
+Version: 0.2.0-rootless4
 Architecture: iphoneos-arm64
 Description: CC toggle to disable microphone, camera and GPS system-wide. Rootless port for Dopamine (iOS 15-16). Total silence: mic samples are zeroed in mediaserverd, location delegates are nulled, camera inputs are dropped.
 Depends: ellekit, com.opa334.ccsupport, ws.hbang.common

@@ -50,10 +50,15 @@ unchanged, and the license also ships inside the package.
 - **The mic produced noise, not silence.** The AGC buffer is now zeroed after processing
   (`memset`) instead of being swapped for an uninitialised buffer. Audio read from the
   RemoteIO / VoiceProcessingIO input bus is also zeroed in apps (covers AVAudioEngine).
+- **Siri still heard the mic** (fixed in `0.2.0-rootless4`). Siri records in `corespeechd`
+  through an AudioQueue (16 kHz, 16-bit PCM), which Begonecia didn't inject into, and its
+  `mediaserverd` chain doesn't use the AGC units silenced above. AudioQueue input callbacks
+  are now wrapped and handed silence while Begonecia is on, and `corespeechd`/`assistantd`
+  are in the filter. This also covers apps that record through AudioQueue.
 
 ## Compatibility
 
-Tested on an **iPhone 8 Plus (A11, arm64)**, iOS 16.7, Dopamine.
+Tested on an **iPhone 8 Plus (A11, arm64)**, iOS 16.7, and an **iPhone 7 (A10)**, iOS 15.8.6, with Dopamine. The Siri fix (`0.2.0-rootless4`) was verified on the iPhone 7: with Begonecia on, Siri's input buffers reach it as silence.
 
 **A12 and newer (arm64e):** builds up to `0.2.0-rootless1` put A12+ devices into safe mode.
 Their arm64e slice used the old, unversioned pointer-authentication ABI (Mach-O cpusubtype

@@ -12,7 +12,7 @@
 #define BCFourCC(x) (char)((x)>>24), (char)((x)>>16), (char)((x)>>8), (char)(x)
 static BOOL bcIsDebugTarget(void) {
     const char *n = getprogname();
-    return !strcmp(n, "mediaserverd") || !strcmp(n, "Camera") || !strcmp(n, "Maps") || !strcmp(n, "VoiceMemos") || !strcmp(n, "SpringBoard");
+    return !strcmp(n, "mediaserverd") || !strcmp(n, "corespeechd") || !strcmp(n, "assistantd") || !strcmp(n, "Camera") || !strcmp(n, "Maps") || !strcmp(n, "VoiceMemos") || !strcmp(n, "SpringBoard");
 }
 // Returns YES the first time a given (a, b, c) triple is seen in this process.
 static BOOL bcFirstSighting(uint32_t a, uint32_t b, uint32_t c) {
@@ -96,6 +96,57 @@ static void bcSilence(AudioBufferList *ioData) {
         }
     }
     return result;
+}
+
+// AudioQueue recorders (Siri's corespeechd, Voice Memos-style apps): wrap the
+// input callback and hand it silence while active. Linear PCM only (zeros are
+// silence there); compressed input queues are left alone.
+typedef struct {
+    AudioQueueInputCallback callback;
+    void *userData;
+    BOOL pcm;
+} BCQueueTap;
+
+static void bcSilenceQueueBuffer(AudioQueueBufferRef buffer, BOOL pcm, const char *who) {
+#ifdef BC_DEBUG
+    static uint64_t calls;
+    if (pcm && buffer->mAudioDataByteSize >= 2 && (calls++ % 50) == 0) {
+        const int16_t *samples = (const int16_t *)buffer->mAudioData;
+        UInt32 count = buffer->mAudioDataByteSize / 2; double sum = 0;
+        for (UInt32 i = 0; i < count; i++) sum += (double)samples[i] * samples[i];
+        BCLog(@"%s input level rms=%.1f active=%d", who, sqrt(sum / count), bcActive);
+    }
+#endif
+    if (bcActive && pcm && buffer->mAudioData) memset(buffer->mAudioData, 0, buffer->mAudioDataByteSize);
+}
+
+static void bcQueueInputTrampoline(void *userData, AudioQueueRef queue, AudioQueueBufferRef buffer, const AudioTimeStamp *time, UInt32 packets, const AudioStreamPacketDescription *descriptions) {
+    BCQueueTap *tap = (BCQueueTap *)userData;
+    bcSilenceQueueBuffer(buffer, tap->pcm, "AudioQueue");
+    tap->callback(tap->userData, queue, buffer, time, packets, descriptions);
+}
+
+%hookf(OSStatus, AudioQueueNewInput, const AudioStreamBasicDescription *inFormat, AudioQueueInputCallback inCallbackProc, void *inUserData, CFRunLoopRef inCallbackRunLoop, CFStringRef inCallbackRunLoopMode, UInt32 inFlags, AudioQueueRef *outAQ) {
+    if (!inCallbackProc || !inFormat) return %orig;
+    // Lives as long as the queue; queues are few and long-lived, so it isn't freed.
+    BCQueueTap *tap = (BCQueueTap *)calloc(1, sizeof(BCQueueTap));
+    tap->callback = inCallbackProc;
+    tap->userData = inUserData;
+    tap->pcm = inFormat->mFormatID == kAudioFormatLinearPCM && !(inFormat->mFormatFlags & kAudioFormatFlagIsFloat) && inFormat->mBitsPerChannel == 16;
+    BCLog(@"AudioQueueNewInput wrapped: format='%c%c%c%c' rate=%.0f ch=%u bits=%u pcm16=%d", BCFourCC(inFormat->mFormatID), inFormat->mSampleRate, (unsigned)inFormat->mChannelsPerFrame, (unsigned)inFormat->mBitsPerChannel, tap->pcm);
+    return %orig(inFormat, bcQueueInputTrampoline, tap, inCallbackRunLoop, inCallbackRunLoopMode, inFlags, outAQ);
+}
+
+%hookf(OSStatus, AudioQueueNewInputWithDispatchQueue, AudioQueueRef *outAQ, const AudioStreamBasicDescription *inFormat, UInt32 inFlags, dispatch_queue_t inCallbackDispatchQueue, AudioQueueInputCallbackBlock inCallbackBlock) {
+    if (!inCallbackBlock || !inFormat) return %orig;
+    BOOL pcm = inFormat->mFormatID == kAudioFormatLinearPCM && !(inFormat->mFormatFlags & kAudioFormatFlagIsFloat) && inFormat->mBitsPerChannel == 16;
+    AudioQueueInputCallbackBlock original = [[inCallbackBlock copy] autorelease];
+    AudioQueueInputCallbackBlock wrapped = ^(AudioQueueRef queue, AudioQueueBufferRef buffer, const AudioTimeStamp *time, UInt32 packets, const AudioStreamPacketDescription *descriptions) {
+        bcSilenceQueueBuffer(buffer, pcm, "AudioQueue(block)");
+        original(queue, buffer, time, packets, descriptions);
+    };
+    BCLog(@"AudioQueueNewInputWithDispatchQueue wrapped: format='%c%c%c%c' pcm16=%d", BCFourCC(inFormat->mFormatID), pcm);
+    return %orig(outAQ, inFormat, inFlags, inCallbackDispatchQueue, [[wrapped copy] autorelease]);
 }
 
 @interface CLLocationManager(BegoneCIA)
@@ -230,16 +281,6 @@ static void bcSilence(AudioBufferList *ioData) {
     AudioComponentGetDescription(AudioComponentInstanceGetComponent(unit), &d);
     if (bcFirstSighting('AUPM', d.componentType, d.componentSubType))
         BCLog(@"AudioUnitProcessMultiple: type='%c%c%c%c' subtype='%c%c%c%c'", BCFourCC(d.componentType), BCFourCC(d.componentSubType));
-    return %orig;
-}
-
-%hookf(OSStatus, AudioQueueNewInput, const AudioStreamBasicDescription *inFormat, AudioQueueInputCallback inCallbackProc, void *inUserData, CFRunLoopRef inCallbackRunLoop, CFStringRef inCallbackRunLoopMode, UInt32 inFlags, AudioQueueRef *outAQ) {
-    BCLog(@"AudioQueueNewInput: format='%c%c%c%c' rate=%.0f ch=%u", BCFourCC(inFormat->mFormatID), inFormat->mSampleRate, (unsigned)inFormat->mChannelsPerFrame);
-    return %orig;
-}
-
-%hookf(OSStatus, AudioQueueNewInputWithDispatchQueue, AudioQueueRef *outAQ, const AudioStreamBasicDescription *inFormat, UInt32 inFlags, dispatch_queue_t inCallbackDispatchQueue, AudioQueueInputCallbackBlock inCallbackBlock) {
-    BCLog(@"AudioQueueNewInputWithDispatchQueue: format='%c%c%c%c' rate=%.0f ch=%u", BCFourCC(inFormat->mFormatID), inFormat->mSampleRate, (unsigned)inFormat->mChannelsPerFrame);
     return %orig;
 }
 

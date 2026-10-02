@@ -1,1 +1,1 @@
-Filter = { Executables = ("mediaserverd"); Bundles = ("com.apple.UIKit"); };
+Filter = { Executables = ("mediaserverd", "corespeechd", "assistantd"); Bundles = ("com.apple.UIKit"); };
