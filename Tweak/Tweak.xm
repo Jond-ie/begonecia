@@ -6,13 +6,42 @@
 #import <os/lock.h>
 #import "../BCCommon.h"
 
+#ifdef BC_PROBE
+// Dev builds: report through Darwin notify state, which sandboxed daemons can set
+// (oslog doesn't show tweaks' log lines on iOS 17). Read with
+//   notifyutil -g com.johndie.begonecia.probe.<process>.<key>
+#import <notify.h>
+static void BCProbe(const char *key, uint64_t value) {
+    char name[160];
+    snprintf(name, sizeof(name), "com.johndie.begonecia.probe.%s.%s", getprogname(), key);
+    // State only lasts while a registration holds the name: keep one per key.
+    static os_unfair_lock lock = OS_UNFAIR_LOCK_INIT;
+    static CFMutableDictionaryRef tokens;
+    os_unfair_lock_lock(&lock);
+    if (!tokens) tokens = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, NULL);
+    CFStringRef key2 = CFStringCreateWithCString(NULL, name, kCFStringEncodingUTF8);
+    int token = (int)(intptr_t)CFDictionaryGetValue(tokens, key2) - 1;
+    if (token < 0 && notify_register_check(name, &token) == NOTIFY_STATUS_OK) CFDictionarySetValue(tokens, key2, (const void *)(intptr_t)(token + 1));
+    if (token >= 0) notify_set_state(token, value);
+    CFRelease(key2);
+    os_unfair_lock_unlock(&lock);
+}
+// The n-th new sighting goes to key s<n> as its two codes (b << 32 | c).
+static void BCProbeSighting(int index, uint32_t type, uint32_t subtype, uint32_t tag) {
+    char key[32];
+    snprintf(key, sizeof(key), "s%d", index);
+    BCProbe(key, ((uint64_t)type << 32) | subtype); (void)tag;
+    BCProbe("n", index + 1);
+}
+#endif
+
 #ifdef BC_DEBUG
 #import <objc/runtime.h>
 #define BCLog(fmt, ...) NSLog(@"[BegoneCIA] %s[%d] " fmt, getprogname(), getpid(), ##__VA_ARGS__)
 #define BCFourCC(x) (char)((x)>>24), (char)((x)>>16), (char)((x)>>8), (char)(x)
 static BOOL bcIsDebugTarget(void) {
     const char *n = getprogname();
-    return !strcmp(n, "mediaserverd") || !strcmp(n, "corespeechd") || !strcmp(n, "assistantd") || !strcmp(n, "Camera") || !strcmp(n, "Maps") || !strcmp(n, "VoiceMemos") || !strcmp(n, "SpringBoard");
+    return !strcmp(n, "mediaserverd") || !strcmp(n, "audiomxd") || !strcmp(n, "corespeechd") || !strcmp(n, "assistantd") || !strcmp(n, "Camera") || !strcmp(n, "Maps") || !strcmp(n, "VoiceMemos") || !strcmp(n, "SpringBoard");
 }
 // Returns YES the first time a given (a, b, c) triple is seen in this process.
 static BOOL bcFirstSighting(uint32_t a, uint32_t b, uint32_t c) {
@@ -24,8 +53,12 @@ static BOOL bcFirstSighting(uint32_t a, uint32_t b, uint32_t c) {
     for (int i = 0; i < nseen; i++) {
         if (seen[i][0] == a && seen[i][1] == b && seen[i][2] == c) { isNew = NO; break; }
     }
-    if (isNew && nseen < 128) { seen[nseen][0] = a; seen[nseen][1] = b; seen[nseen][2] = c; nseen++; }
+    int index = -1;
+    if (isNew && nseen < 128) { seen[nseen][0] = a; seen[nseen][1] = b; seen[nseen][2] = c; index = nseen++; }
     os_unfair_lock_unlock(&lock);
+#ifdef BC_PROBE
+    if (index >= 0) BCProbeSighting(index, b, c, a & 0xffff);
+#endif
     return isNew;
 }
 #else
@@ -115,9 +148,17 @@ static void bcSilenceQueueBuffer(AudioQueueBufferRef buffer, BOOL pcm, const cha
         UInt32 count = buffer->mAudioDataByteSize / 2; double sum = 0;
         for (UInt32 i = 0; i < count; i++) sum += (double)samples[i] * samples[i];
         BCLog(@"%s input level rms=%.1f active=%d", who, sqrt(sum / count), bcActive);
+#ifdef BC_PROBE
+        BCProbe("qrms", (uint64_t)(sqrt(sum / count) * 10));
+        BCProbe("qcalls", calls);
+#endif
     }
 #endif
     if (bcActive && pcm && buffer->mAudioData) memset(buffer->mAudioData, 0, buffer->mAudioDataByteSize);
+#ifdef BC_PROBE
+    static BOOL reported;
+    if (!reported) { reported = YES; BCProbe("qpcm", pcm); }
+#endif
 }
 
 static void bcQueueInputTrampoline(void *userData, AudioQueueRef queue, AudioQueueBufferRef buffer, const AudioTimeStamp *time, UInt32 packets, const AudioStreamPacketDescription *descriptions) {
@@ -301,7 +342,17 @@ static void bcQueueInputTrampoline(void *userData, AudioQueueRef queue, AudioQue
 %hook AVAudioInputNode
 -(void)installTapOnBus:(AVAudioNodeBus)bus bufferSize:(AVAudioFrameCount)bufferSize format:(AVAudioFormat *)format block:(AVAudioNodeTapBlock)tapBlock {
     BCLog(@"AVAudioInputNode installTapOnBus:%u", (unsigned)bus);
-    %orig;
+#ifdef BC_PROBE
+    // What the app actually receives: peak sample of each tapped buffer.
+    AVAudioNodeTapBlock original = [tapBlock copy];
+    tapBlock = ^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
+        static uint64_t calls; float peak = 0;
+        if (buffer.floatChannelData) for (AVAudioFrameCount i = 0; i < buffer.frameLength; i++) peak = MAX(peak, fabsf(buffer.floatChannelData[0][i]));
+        if ((calls++ % 20) == 0) { BCProbe("tappeak", (uint64_t)(peak * 1e6)); BCProbe("tapcalls", calls); }
+        original(buffer, when);
+    };
+#endif
+    %orig(bus, bufferSize, format, tapBlock);
 }
 %end
 
@@ -341,6 +392,10 @@ static void HBCBPreferencesChanged() {
 
     NSLog(@"[BegoneCIA] Loaded.");
     %init;
+#ifdef BC_PROBE
+    BCProbe("loaded", getpid());
+    BCProbe("active", bcActive);
+#endif
 #ifdef BC_DEBUG
     if (bcIsDebugTarget()) {
         BCLog(@"loaded, bcActive=%d", bcActive);

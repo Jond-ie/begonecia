@@ -1,7 +1,7 @@
 # Begonecia (rootless)
 
 A **rootless port** of [**BegoneCIA** by Eva (Nepeta)](https://github.com/larygwil/BegoneCIA) for
-Dopamine on iOS 15–16. (Nepeta's own repository is no longer online; the link is an
+Dopamine on iOS 15–17. (Nepeta's own repository is no longer online; the link is an
 unofficial mirror of the original source.)
 
 It's a Control Center toggle that silences the **microphone, camera and location** system-wide.
@@ -55,17 +55,20 @@ unchanged, and the license also ships inside the package.
   `mediaserverd` chain doesn't use the AGC units silenced above. AudioQueue input callbacks
   are now wrapped and handed silence while Begonecia is on, and `corespeechd`/`assistantd`
   are in the filter. This also covers apps that record through AudioQueue.
+- **iOS 17 moved audio processing** (fixed in `0.2.0-rootless5`). On iOS 17 the audio server's
+  work runs in a new daemon, `audiomxd` (next to `mediaserverd`), so it's now in the filter. Siri's
+  capture on iOS 17 still goes through `corespeechd`'s AudioQueue, which the rootless4 fix covers.
 
 ## Compatibility
 
-Tested on an **iPhone 8 Plus (A11, arm64)**, iOS 16.7, and an **iPhone 7 (A10)**, iOS 15.8.6, with Dopamine. The Siri fix (`0.2.0-rootless4`) was verified on the iPhone 7: with Begonecia on, Siri's input buffers reach it as silence.
+Tested with Dopamine on an **iPhone SE (2nd gen, A13, arm64e)** with iOS 17.5.1, an
+**iPhone 8 Plus (A11)** with iOS 16.7 and an **iPhone 7 (A10)** with iOS 15.8.6.
 
-**A12 and newer (arm64e):** builds up to `0.2.0-rootless1` put A12+ devices into safe mode.
-Their arm64e slice used the old, unversioned pointer-authentication ABI (Mach-O cpusubtype
-`0x2`), and iOS 15–16 needs the versioned ABI (`0x80000002`). `0.2.0-rootless2` was an
-arm64-only stopgap. `0.2.0-rootless3` is built with Xcode's clang and has a correct arm64e
-slice, but it **hasn't been confirmed on a real A12+ device yet**. Reports are very welcome
-in [Issues](https://github.com/Jond-ie/repo/issues).
+**A12 and newer (arm64e): confirmed** since `0.2.0-rootless5`. On the iPhone SE (2nd gen),
+iOS 17.5.1, an app recording through AVAudioEngine gets exact zeros with Begonecia on and
+normal audio with it off, and Siri's input buffers reach it as silence. (Builds up to
+`0.2.0-rootless1` put A12+ devices into safe mode: their arm64e slice used the old,
+unversioned pointer-authentication ABI. Current builds are made with Xcode's clang.)
 
 ## Known caveat: the mic AGC subtype
 

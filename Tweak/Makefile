@@ -13,7 +13,11 @@ BegoneCIA_EXTRA_FRAMEWORKS = Cephei
 BegoneCIA_CCFLAGS = -std=c++17
 # Debug logging (view with `oslog` on device): make ... BC_DEBUG=1
 ifeq ($(BC_DEBUG),1)
-BegoneCIA_CFLAGS = -DBC_DEBUG
+BegoneCIA_CFLAGS += -DBC_DEBUG
+endif
+# Dev probe: report through Darwin notify state (oslog misses it on iOS 17). Needs BC_DEBUG.
+ifeq ($(BC_PROBE),1)
+BegoneCIA_CFLAGS += -DBC_PROBE
 endif
 BegoneCIA_FRAMEWORKS = AVFoundation CoreLocation CoreMedia CoreVideo AudioToolbox
 
