@@ -1,7 +1,7 @@
 # Begonecia (rootless)
 
 A **rootless port** of [**BegoneCIA** by Eva (Nepeta)](https://github.com/larygwil/BegoneCIA) for
-Dopamine on iOS 15–17. (Nepeta's own repository is no longer online; the link is an
+Dopamine on iOS 15–18. (Nepeta's own repository is no longer online; the link is an
 unofficial mirror of the original source.)
 
 It's a Control Center toggle that silences the **microphone, camera and location** system-wide.
@@ -55,6 +55,9 @@ unchanged, and the license also ships inside the package.
   `mediaserverd` chain doesn't use the AGC units silenced above. AudioQueue input callbacks
   are now wrapped and handed silence while Begonecia is on, and `corespeechd`/`assistantd`
   are in the filter. This also covers apps that record through AudioQueue.
+- **iOS 18 moved Siri's microphone** (fixed in `1.0.0`). On iOS 18 `corespeechd` gets the mic through
+  AVVoiceController callbacks (`-[CSAudioRecorder voiceControllerAudioCallback:forStream:buffer:]`)
+  instead of an AudioQueue; with Begonecia on, each `AVVCAudioBuffer` is zeroed before CoreSpeech reads it.
 - **iOS 17 moved audio processing** (fixed in `0.2.0-rootless5`). On iOS 17 the audio server's
   work runs in a new daemon, `audiomxd` (next to `mediaserverd`), so it's now in the filter. Siri's
   capture on iOS 17 still goes through `corespeechd`'s AudioQueue, which the rootless4 fix covers.

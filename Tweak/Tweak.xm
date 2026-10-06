@@ -374,6 +374,27 @@ static void HBCBPreferencesChanged() {
     }
 }
 
+// iOS 18: Siri's capture in corespeechd no longer uses an AudioQueue. CoreSpeech
+// gets the mic through AVVoiceController callbacks, one AVVCAudioBuffer at a time;
+// with Begonecia on, each buffer is zeroed in place before CoreSpeech reads it.
+@interface AVVCAudioBuffer : NSObject
+- (void *)data;
+- (int)bytesDataSize;
+@end
+
+%group BCSiri18
+%hook CSAudioRecorder
+- (void)voiceControllerAudioCallback:(id)controller forStream:(unsigned long long)stream buffer:(AVVCAudioBuffer *)buffer {
+    if (bcActive && [buffer respondsToSelector:@selector(data)] && [buffer respondsToSelector:@selector(bytesDataSize)]) {
+        void *bytes = [buffer data];
+        int size = [buffer bytesDataSize];
+        if (bytes && size > 0) memset(bytes, 0, size);
+    }
+    %orig;
+}
+%end
+%end
+
 %ctor {
     bcCaptureSessions = [[NSHashTable weakObjectsHashTable] retain];
     bcLocationManagers = [[NSHashTable weakObjectsHashTable] retain];
@@ -392,6 +413,8 @@ static void HBCBPreferencesChanged() {
 
     NSLog(@"[BegoneCIA] Loaded.");
     %init;
+    Class recorder = objc_getClass("CSAudioRecorder");
+    if (!strcmp(getprogname(), "corespeechd") && recorder && class_getInstanceMethod(recorder, @selector(voiceControllerAudioCallback:forStream:buffer:))) %init(BCSiri18);
 #ifdef BC_PROBE
     BCProbe("loaded", getpid());
     BCProbe("active", bcActive);
