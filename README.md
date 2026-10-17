@@ -25,6 +25,17 @@ Install it from **[John's Repo](https://jond-ie.github.io/repo/)** (Sileo / Zebr
 Licensed MIT, same as the original; see [LICENSE](LICENSE). Nepeta's copyright is kept
 unchanged, and the license also ships inside the package.
 
+## What's new in 1.1.0
+
+- **Per-app control:** a new Settings page. Block everywhere (default), everywhere except the apps you pick, or only
+  in the apps you pick. SpringBoard switches the block as you change apps.
+- **Triggr actions:** with Triggr 2.0 installed, Turn BegoneCIA On / Off / Toggle show up as Triggr actions
+  (through libtriggr, loaded only if Triggr is there).
+- **Fixes:** Wallet / Apple Pay crash on iOS 18 (location requests now answer "denied"), parsecd crash (that answer
+  arrives on the manager's own queue), Snapchat crash when turning BegoneCIA off (camera inputs re-added safely).
+- New dependencies: PreferenceLoader and AltList. AltList (MIT, opa334) is vendored for building; its licence is
+  in `vendor/AltList-LICENSE`.
+
 ## What changed for rootless / iOS 16
 
 **Build and packaging**

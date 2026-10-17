@@ -1,3 +1,5 @@
+#import <objc/message.h>
+#import <dlfcn.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
@@ -205,6 +207,68 @@ static void bcQueueInputTrampoline(void *userData, AudioQueueRef queue, AudioQue
 
 @end
 
+// While blocking, apps get this stand-in delegate instead of nil. A nil delegate made CoreLocation assert in
+// -requestLocation ("delegate must respond to …didUpdateLocations:") and crash whoever asked: Wallet / Apple Pay
+// (CoreODI's fraud check) on iOS 18. The stand-in never passes a location on: it answers the app's real delegate
+// with kCLErrorDenied instead, so one-shot requests finish (as "denied") rather than crash or wait forever.
+@interface BCLocationStub : NSObject <CLLocationManagerDelegate>
+@end
+
+static BCLocationStub *BCStub(void) {
+    static BCLocationStub *stub;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ stub = [BCLocationStub new]; });
+    return stub;
+}
+
+@implementation BCLocationStub
+- (id)realFor:(CLLocationManager *)manager {
+    id real = [manager respondsToSelector:@selector(bcDelegate)] ? [manager performSelector:@selector(bcDelegate)] : nil;
+    return real == self ? nil : real;
+}
+- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray *)locations {
+    id real = [self realFor:manager];
+    if ([real respondsToSelector:@selector(locationManager:didFailWithError:)])
+        [real locationManager:manager didFailWithError:[NSError errorWithDomain:kCLErrorDomain code:kCLErrorDenied userInfo:nil]];
+}
+- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
+    id real = [self realFor:manager];
+    if ([real respondsToSelector:@selector(locationManager:didFailWithError:)]) [real locationManager:manager didFailWithError:error];
+}
+- (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
+    id real = [self realFor:manager];
+    if ([real respondsToSelector:@selector(locationManagerDidChangeAuthorization:)]) [real locationManagerDidChangeAuthorization:manager];
+}
+@end
+
+// The manager's delegate queue (CLLocationManagerInternal's fSilo, a CLSilo with -async:, iOS 15-18). Managers made
+// with ...onQueue: (parsecd's Swift code) assert they're called on that queue: the main queue crashed parsecd.
+static id bcDelegateSilo(CLLocationManager *manager) {
+    @try {
+        Ivar internalIvar = class_getInstanceVariable([CLLocationManager class], "_internal");
+        id internal = internalIvar ? object_getIvar(manager, internalIvar) : nil;
+        Ivar siloIvar = internal ? class_getInstanceVariable([internal class], "fSilo") : NULL;
+        id silo = siloIvar ? object_getIvar(internal, siloIvar) : nil;
+        return [silo respondsToSelector:@selector(async:)] ? silo : nil;
+    } @catch (NSException *e) {
+        return nil;
+    }
+}
+
+static void bcAnswerDenied(CLLocationManager *manager, id real) {
+    if (![real respondsToSelector:@selector(locationManager:didFailWithError:)]) return;
+    [manager retain];
+    [real retain];
+    void (^answer)(void) = ^{
+        [real locationManager:manager didFailWithError:[NSError errorWithDomain:kCLErrorDomain code:kCLErrorDenied userInfo:nil]];
+        [real release];
+        [manager release];
+    };
+    id silo = bcDelegateSilo(manager);
+    if (silo) ((void (*)(id, SEL, id))objc_msgSend)(silo, @selector(async:), [[answer copy] autorelease]);
+    else dispatch_async(dispatch_get_main_queue(), answer);
+}
+
 %hook CLLocationManager
 
 %property (nonatomic, retain) id bcDelegate;
@@ -214,7 +278,7 @@ static void bcQueueInputTrampoline(void *userData, AudioQueueRef queue, AudioQue
 // -setDelegate:, so the delegate has to be withheld here too.
 -(id)initWithEffectiveBundleIdentifier:(id)bundleIdentifier bundlePath:(id)bundlePath websiteIdentifier:(id)websiteIdentifier delegate:(id)delegate silo:(id)silo {
     BCLog(@"CLLocationManager designated init, delegate: %@ (bcActive=%d)", delegate ? NSStringFromClass([delegate class]) : @"nil", bcActive);
-    self = %orig(bundleIdentifier, bundlePath, websiteIdentifier, bcActive ? nil : delegate, silo);
+    self = %orig(bundleIdentifier, bundlePath, websiteIdentifier, bcActive ? BCStub() : delegate, silo);
     if (self) {
         if (delegate) self.bcDelegate = delegate;
         bcTrack(bcLocationManagers, self);
@@ -224,7 +288,7 @@ static void bcQueueInputTrampoline(void *userData, AudioQueueRef queue, AudioQue
 
 -(id)delegate {
     if (bcActive) {
-        return NULL;
+        return BCStub();
     } else {
         return %orig;
     }
@@ -234,15 +298,25 @@ static void bcQueueInputTrampoline(void *userData, AudioQueueRef queue, AudioQue
     // If we remove the delegate then that given app won't receive location updates.
     BCLog(@"CLLocationManager setDelegate: %@ (bcActive=%d)", arg1 ? NSStringFromClass([arg1 class]) : @"nil", bcActive);
 
-    if (arg1) self.bcDelegate = arg1;
+    if (arg1 && arg1 != BCStub()) self.bcDelegate = arg1;
 
     bcTrack(bcLocationManagers, self);
 
     if (bcActive) {
-        arg1 = NULL;
+        arg1 = BCStub();
     }
 
     %orig;
+}
+
+// a one-shot request while blocking: answer "denied" right away (no location is looked up), so callers that wait
+// for the answer (the Apple Pay check in Wallet) carry on instead of hanging
+-(void)requestLocation {
+    if (bcActive) {
+        bcAnswerDenied(self, self.bcDelegate);
+    } else {
+        %orig;
+    }
 }
 
 -(CLLocation *)location {
@@ -300,8 +374,11 @@ static void bcQueueInputTrampoline(void *userData, AudioQueueRef queue, AudioQue
     if (!self.bcInputs) return;
     NSArray *inputs = [[self.bcInputs copy] autorelease];
     if (!bcActive) {
+        // put back only what the session will take: an input it already has, or one it can't take now (another
+        // session owns the camera, the app reconfigured), throws NSInvalidArgumentException (crashed Snapchat)
         for (id obj in inputs) {
-            if (obj) [self addInput:obj];
+            if (!obj || [self.inputs containsObject:obj] || ![self canAddInput:obj]) continue;
+            @try { [self addInput:obj]; } @catch (NSException *e) { BCLog(@"re-adding input failed: %@", e.reason); }
         }
     } else {
         for (id obj in inputs) {
@@ -395,24 +472,101 @@ static void HBCBPreferencesChanged() {
 %end
 %end
 
+#pragma mark - Per-app control (SpringBoard)
+
+// SpringBoard decides the live state everyone else follows: the master switch (Control Center / CLI / Triggr),
+// then the per-app mode for whichever app is in front. Background apps follow the front app's state.
+@interface SpringBoard : NSObject
+- (id)_accessibilityFrontMostApplication;
+@end
+
+static NSString *bcFrontApp;
+
+static BOOL BCEffectiveState(void) {
+    if (!BCGetState()) return NO;
+    HBPreferences *preferences = [[[HBPreferences alloc] initWithIdentifier:BCPreferencesIdentifier] autorelease];
+    NSInteger mode = [[preferences objectForKey:BCAppMode] integerValue];
+    NSArray *apps = [preferences objectForKey:BCApps];
+    BOOL listed = bcFrontApp && [apps isKindOfClass:NSArray.class] && [apps containsObject:bcFrontApp];
+    if (mode == 1) return !listed;   // off in the selected apps
+    if (mode == 2) return listed;    // only in the selected apps
+    return YES;
+}
+
+static void BCRecompute(void) {
+    BOOL effective = BCEffectiveState();
+#ifdef BC_TRACE
+    FILE *f = fopen("/var/tmp/bc.log", "a");
+    if (f) { fprintf(f, "recompute front=%s master=%d effective=%d live=%d\n", bcFrontApp.UTF8String ?: "-", BCGetState(), effective, BCGetLiveState()); fclose(f); }
+#endif
+    if (effective == BCGetLiveState()) return;
+    BCPublishState(effective);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (CFStringRef)BCLiveNotification, nil, nil, true);
+#ifdef BC_TRACE
+    FILE *g = fopen("/var/tmp/bc.log", "a");
+    if (g) { fprintf(g, "published %d, reads back %d\n", effective, BCGetLiveState()); fclose(g); }
+#endif
+}
+
+%group BCSpringBoard
+%hook SpringBoard
+- (void)frontDisplayDidChange:(id)display {
+    %orig;
+    // The argument is the new front app (an SBApplication), nil for the Home Screen (same as Triggr's App Opened).
+    id identifier = [display respondsToSelector:@selector(bundleIdentifier)] ? [display performSelector:@selector(bundleIdentifier)] : nil;
+    if (![identifier isKindOfClass:NSString.class]) identifier = nil;
+    [bcFrontApp release];
+    bcFrontApp = [identifier copy];
+    BCRecompute();
+}
+%end
+%end
+
+// Triggr 2.0+: Enable / Disable / Toggle BegoneCIA as actions (libtriggr, loaded only if Triggr is installed).
+static void BCRegisterTriggrAction(Class infoClass, NSString *identifier, NSString *title, void (^handler)(id)) {
+    id info = [[[infoClass alloc] init] autorelease];
+    [info setValue:identifier forKey:@"identifier"];
+    [info setValue:title forKey:@"title"];
+    [info setValue:@"BegoneCIA" forKey:@"group"];
+    [info setValue:@"mic.slash.fill" forKey:@"symbolName"];
+    id triggr = ((id (*)(id, SEL))objc_msgSend)(NSClassFromString(@"TGTriggr"), @selector(shared));
+    ((void (*)(id, SEL, id, id))objc_msgSend)(triggr, NSSelectorFromString(@"registerAction:handler:"), info, handler);
+}
+
+static void BCRegisterTriggrActions(void) {
+    if (!dlopen("/var/jb/usr/lib/libtriggr.dylib", RTLD_NOW)) return;
+    Class infoClass = NSClassFromString(@"TGActionInfo");
+    if (!infoClass || ![NSClassFromString(@"TGTriggr") respondsToSelector:@selector(shared)]) return;
+    BCRegisterTriggrAction(infoClass, @"com.johndie.begonecia.enable", @"Turn BegoneCIA On", ^(id ctx) { BCSetState(YES); });
+    BCRegisterTriggrAction(infoClass, @"com.johndie.begonecia.disable", @"Turn BegoneCIA Off", ^(id ctx) { BCSetState(NO); });
+    BCRegisterTriggrAction(infoClass, @"com.johndie.begonecia.toggle", @"Toggle BegoneCIA", ^(id ctx) { BCSetState(!BCGetState()); });
+}
+
 %ctor {
     bcCaptureSessions = [[NSHashTable weakObjectsHashTable] retain];
     bcLocationManagers = [[NSHashTable weakObjectsHashTable] retain];
 
     // SpringBoard is unsandboxed and long-lived: it seeds the live notify state
     // from the persisted Cephei plist (e.g. after a reboot) and holds the name open.
-    if (!strcmp(getprogname(), "SpringBoard")) {
+    BOOL springBoard = !strcmp(getprogname(), "SpringBoard");
+    if (springBoard) {
         BOOL persisted = BCGetState();
         BCLog(@"SpringBoard seeding live state from prefs: %d", persisted);
         BCPublishState(persisted);
+        BCRecompute(); // the per-app mode may already say otherwise (e.g. "only in selected apps")
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (CFStringRef)BCNotification, nil, nil, true);
+        // Settings / Control Center changes: re-decide the live state.
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)BCRecompute, (CFStringRef)BCNotification, NULL, CFNotificationSuspensionBehaviorCoalesce);
+        dispatch_async(dispatch_get_main_queue(), ^{ BCRegisterTriggrActions(); });
     }
 
     HBCBPreferencesChanged();
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)HBCBPreferencesChanged, (CFStringRef)BCNotification, NULL, CFNotificationSuspensionBehaviorCoalesce);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)HBCBPreferencesChanged, (CFStringRef)BCLiveNotification, NULL, CFNotificationSuspensionBehaviorCoalesce);
 
     NSLog(@"[BegoneCIA] Loaded.");
     %init;
+    if (springBoard) %init(BCSpringBoard);
     Class recorder = objc_getClass("CSAudioRecorder");
     if (!strcmp(getprogname(), "corespeechd") && recorder && class_getInstanceMethod(recorder, @selector(voiceControllerAudioCallback:forStream:buffer:))) %init(BCSiri18);
 #ifdef BC_PROBE

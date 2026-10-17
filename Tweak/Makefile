@@ -19,6 +19,9 @@ endif
 ifeq ($(BC_PROBE),1)
 BegoneCIA_CFLAGS += -DBC_PROBE
 endif
+ifeq ($(BC_TRACE),1)
+BegoneCIA_CFLAGS += -DBC_TRACE
+endif
 BegoneCIA_FRAMEWORKS = AVFoundation CoreLocation CoreMedia CoreVideo AudioToolbox
 
 include $(THEOS_MAKE_PATH)/tweak.mk
