@@ -1,14 +1,13 @@
-# Begonecia (rootless)
+# BegoneCIA (Rootless)
 
-A **rootless port** of [**BegoneCIA** by Eva (Nepeta)](https://github.com/larygwil/BegoneCIA) for
-Dopamine on iOS 15–18. (Nepeta's own repository is no longer online; the link is an
-unofficial mirror of the original source.)
+A **Rootless and RootHide port** of [**BegoneCIA** by Eva (Nepeta)](https://github.com/larygwil/BegoneCIA) for
+iOS 15–27. (Nepeta's own repository is no longer online; the link is an unofficial mirror of the original source.)
 
 It's a Control Center toggle that silences the **microphone, camera and location** system-wide.
 While it's on, apps don't get a permission error, they just get nothing: silent mic audio,
-no camera input, no location updates.
+no camera input, no location updates. It steps aside during calls (on by default) and in apps you pick.
 
-Install it from **[John's Repo](https://jond-ie.github.io/repo/)** (Sileo / Zebra:
+Install it from the **[pwnapple repo](https://jond-ie.github.io/repo/)** (Sileo / Zebra:
 `https://jond-ie.github.io/repo/`). Bugs and requests go to the repo's
 [Issues](https://github.com/Jond-ie/repo/issues).
 
@@ -17,26 +16,15 @@ Install it from **[John's Repo](https://jond-ie.github.io/repo/)** (Sileo / Zebr
 - **Eva (Nepeta)** wrote the original BegoneCIA and the core technique: silencing the mic
   inside `mediaserverd`, nulling `CLLocationManager` delegates, and withholding
   `AVCaptureSession` inputs. All credit for the idea and the original code is hers.
-- **John d_ie** did the rootless / iOS 16 port: porting research, on-device testing and
-  debugging on an iPhone 8 Plus (A11) running iOS 16.7 with Dopamine.
+- **Jond-ie** did the iOS 15–27 Rootless and RootHide port: porting research, on-device testing and
+  debugging, starting on an iPhone 8 Plus (A11) running iOS 16.7 with Dopamine.
 - The port was **AI-assisted**: much of the code was written with Claude Code (Anthropic),
-  directed, tested and verified on-device by John d_ie.
+  directed, tested and verified on-device by Jond-ie.
 
 Licensed MIT, same as the original; see [LICENSE](LICENSE). Nepeta's copyright is kept
 unchanged, and the license also ships inside the package.
 
-## What's new in 1.1.0
-
-- **Per-app control:** a new Settings page. Block everywhere (default), everywhere except the apps you pick, or only
-  in the apps you pick. SpringBoard switches the block as you change apps.
-- **Triggr actions:** with Triggr 2.0 installed, Turn BegoneCIA On / Off / Toggle show up as Triggr actions
-  (through libtriggr, loaded only if Triggr is there).
-- **Fixes:** Wallet / Apple Pay crash on iOS 18 (location requests now answer "denied"), parsecd crash (that answer
-  arrives on the manager's own queue), Snapchat crash when turning BegoneCIA off (camera inputs re-added safely).
-- New dependencies: PreferenceLoader and AltList. AltList (MIT, opa334) is vendored for building; its licence is
-  in `vendor/AltList-LICENSE`.
-
-## What changed for rootless / iOS 16
+## What changed for Rootless / iOS 16
 
 **Build and packaging**
 - `ARCHS = arm64 arm64e`, `TARGET = iphone:clang:latest:15.0` (armv7/armv7s dropped).
@@ -75,8 +63,10 @@ unchanged, and the license also ships inside the package.
 
 ## Compatibility
 
-Tested with Dopamine on an **iPhone SE (2nd gen, A13, arm64e)** with iOS 17.5.1, an
-**iPhone 8 Plus (A11)** with iOS 16.7 and an **iPhone 7 (A10)** with iOS 15.8.6.
+**iOS 15–27**, Rootless and RootHide (`iphoneos-arm64` and `iphoneos-arm64e` packages). Tested with Dopamine on an
+**iPhone SE (2nd gen, A13, arm64e)** with iOS 17.5.1, an **iPhone 8 Plus (A11)** with iOS 16.7, an
+**iPhone 7 (A10)** with iOS 15.8.6 and an **iPhone 11 Pro** with iOS 18.6.2; iOS 27 confirmed working on a device.
+The RootHide build hasn't been tested on a device yet.
 
 **A12 and newer (arm64e): confirmed** since `0.2.0-rootless5`. On the iPhone SE (2nd gen),
 iOS 17.5.1, an app recording through AVAudioEngine gets exact zeros with Begonecia on and
@@ -95,7 +85,7 @@ The input-bus zeroing in apps is a second layer, but it doesn't cover every audi
 
 ## Building
 
-Requires [Theos](https://theos.dev) with the rootless scheme.
+Requires [Theos](https://theos.dev) with the Rootless scheme (or the RootHide one).
 
 ```bash
 make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless

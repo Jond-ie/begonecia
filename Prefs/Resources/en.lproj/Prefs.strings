@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ARE_YOU_SURE_TO_RESET_PREFS</key>
+	<string>Are you sure you want to reset all your preferences? This cannot be undone.</string>
+	<key>CANCEL</key>
+	<string>Cancel</string>
+	<key>DISABLE_IN_CALLS</key>
+	<string>Disable in calls</string>
+	<key>ENABLED</key>
+	<string>Enabled</string>
+	<key>GITHUB</key>
+	<string>Github</string>
+	<key>OK</key>
+	<string>OK</string>
+	<key>RESET_PREFS</key>
+	<string>Restore default settings and respring</string>
+	<key>RESPRING</key>
+	<string>Respring</string>
+	<key>SOURCE_CODE</key>
+	<string>Source code</string>
+</dict>
+</plist>

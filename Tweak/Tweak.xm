@@ -1,5 +1,6 @@
 #import <objc/message.h>
 #import <dlfcn.h>
+#import <rootless.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
@@ -338,6 +339,21 @@ static void bcAnswerDenied(CLLocationManager *manager, id real) {
 
 %end
 
+// iOS 15's designated initializer (iOS 16+ added bundlePath:websiteIdentifier:, hooked above).
+%group BCLocation15
+%hook CLLocationManager
+-(id)initWithEffectiveBundleIdentifier:(id)bundleIdentifier bundle:(id)bundle delegate:(id)delegate silo:(id)silo {
+    BCLog(@"CLLocationManager designated init (15), delegate: %@ (bcActive=%d)", delegate ? NSStringFromClass([delegate class]) : @"nil", bcActive);
+    self = %orig(bundleIdentifier, bundle, bcActive ? BCStub() : delegate, silo);
+    if (self) {
+        if (delegate) self.bcDelegate = delegate;
+        bcTrack(bcLocationManagers, self);
+    }
+    return self;
+}
+%end
+%end
+
 // This kills the camera app :c
 /*%hookf(CVImageBufferRef, CMSampleBufferGetImageBuffer, CMSampleBufferRef sbuf) {
     return NULL;
@@ -482,10 +498,33 @@ static void HBCBPreferencesChanged() {
 
 static NSString *bcFrontApp;
 
+@interface TUCall : NSObject
+@property (readonly, nonatomic) int status;
+@end
+@interface TUCallCenter : NSObject
++ (instancetype)sharedInstance;
+@property (readonly, copy, nonatomic) NSArray *currentCalls;
+@end
+
+// A call (Phone, FaceTime or a CallKit app like WhatsApp) that is connecting, connected or on hold.
+// TUCall status: 1 active, 2 held, 3 sending (outgoing), 4 ringing, 5 disconnecting, 6 disconnected.
+static BOOL BCInCall(void) {
+    Class center = objc_getClass("TUCallCenter");
+    if (![center respondsToSelector:@selector(sharedInstance)]) return NO;
+    for (TUCall *call in [[center sharedInstance] currentCalls]) {
+        int status = [call respondsToSelector:@selector(status)] ? call.status : 0;
+        if (status >= 1 && status <= 3) return YES;
+    }
+    return NO;
+}
+
 static BOOL BCEffectiveState(void) {
     if (!BCGetState()) return NO;
     HBPreferences *preferences = [[[HBPreferences alloc] initWithIdentifier:BCPreferencesIdentifier] autorelease];
-    NSInteger mode = [[preferences objectForKey:BCAppMode] integerValue];
+    if ([([preferences objectForKey:BCDisableInCalls] ?: @YES) boolValue] && BCInCall()) return NO; // on by default, like the original
+    // No mode saved = the original's "Disable BegoneCIA for applications" list (mode 2 from 1.1.0 still works).
+    id savedMode = [preferences objectForKey:BCAppMode];
+    NSInteger mode = savedMode ? [savedMode integerValue] : 1;
     NSArray *apps = [preferences objectForKey:BCApps];
     BOOL listed = bcFrontApp && [apps isKindOfClass:NSArray.class] && [apps containsObject:bcFrontApp];
     if (mode == 1) return !listed;   // off in the selected apps
@@ -497,7 +536,7 @@ static void BCRecompute(void) {
     BOOL effective = BCEffectiveState();
 #ifdef BC_TRACE
     FILE *f = fopen("/var/tmp/bc.log", "a");
-    if (f) { fprintf(f, "recompute front=%s master=%d effective=%d live=%d\n", bcFrontApp.UTF8String ?: "-", BCGetState(), effective, BCGetLiveState()); fclose(f); }
+    if (f) { fprintf(f, "recompute front=%s master=%d incall=%d effective=%d live=%d\n", bcFrontApp.UTF8String ?: "-", BCGetState(), BCInCall(), effective, BCGetLiveState()); fclose(f); }
 #endif
     if (effective == BCGetLiveState()) return;
     BCPublishState(effective);
@@ -520,6 +559,14 @@ static void BCRecompute(void) {
     BCRecompute();
 }
 %end
+
+// Call state changes (the original's hook point, iOS 12-27). Re-decided on the next turn so TUCallCenter is current.
+%hook SBTelephonyManager
+- (void)callEventHandler:(id)event {
+    %orig;
+    dispatch_async(dispatch_get_main_queue(), ^{ BCRecompute(); });
+}
+%end
 %end
 
 // Triggr 2.0+: Enable / Disable / Toggle BegoneCIA as actions (libtriggr, loaded only if Triggr is installed).
@@ -534,7 +581,7 @@ static void BCRegisterTriggrAction(Class infoClass, NSString *identifier, NSStri
 }
 
 static void BCRegisterTriggrActions(void) {
-    if (!dlopen("/var/jb/usr/lib/libtriggr.dylib", RTLD_NOW)) return;
+    if (!dlopen(ROOT_PATH("/usr/lib/libtriggr.dylib"), RTLD_NOW)) return;
     Class infoClass = NSClassFromString(@"TGActionInfo");
     if (!infoClass || ![NSClassFromString(@"TGTriggr") respondsToSelector:@selector(shared)]) return;
     BCRegisterTriggrAction(infoClass, @"com.johndie.begonecia.enable", @"Turn BegoneCIA On", ^(id ctx) { BCSetState(YES); });
@@ -543,6 +590,10 @@ static void BCRegisterTriggrActions(void) {
 }
 
 %ctor {
+    // iOS 27 kills WebKit helpers (WebContent etc.) when we patch audio
+    // functions in them, and they never need BegoneCIA anyway.
+    if (!strncmp(getprogname(), "com.apple.WebKit.", 17)) return;
+
     bcCaptureSessions = [[NSHashTable weakObjectsHashTable] retain];
     bcLocationManagers = [[NSHashTable weakObjectsHashTable] retain];
 
@@ -558,6 +609,8 @@ static void BCRegisterTriggrActions(void) {
         // Settings / Control Center changes: re-decide the live state.
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)BCRecompute, (CFStringRef)BCNotification, NULL, CFNotificationSuspensionBehaviorCoalesce);
         dispatch_async(dispatch_get_main_queue(), ^{ BCRegisterTriggrActions(); });
+        // Also follow TelephonyUtilities directly, in case a call type never reaches SBTelephonyManager.
+        [[NSNotificationCenter defaultCenter] addObserverForName:@"TUCallCenterCallStatusChangedNotification" object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) { BCRecompute(); }];
     }
 
     HBCBPreferencesChanged();
@@ -567,6 +620,7 @@ static void BCRegisterTriggrActions(void) {
     NSLog(@"[BegoneCIA] Loaded.");
     %init;
     if (springBoard) %init(BCSpringBoard);
+    if ([CLLocationManager instancesRespondToSelector:@selector(initWithEffectiveBundleIdentifier:bundle:delegate:silo:)]) %init(BCLocation15);
     Class recorder = objc_getClass("CSAudioRecorder");
     if (!strcmp(getprogname(), "corespeechd") && recorder && class_getInstanceMethod(recorder, @selector(voiceControllerAudioCallback:forStream:buffer:))) %init(BCSiri18);
 #ifdef BC_PROBE
