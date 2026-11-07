@@ -7,7 +7,7 @@ It's a Control Center toggle that silences the **microphone, camera and location
 While it's on, apps don't get a permission error, they just get nothing: silent mic audio,
 no camera input, no location updates. It steps aside during calls (on by default) and in apps you pick.
 
-Install it from the **[pwnapple repo](https://jond-ie.github.io/repo/)** (Sileo / Zebra:
+Install it from the **[Jond_ie repo](https://jond-ie.github.io/repo/)** (Sileo / Zebra:
 `https://jond-ie.github.io/repo/`). Bugs and requests go to the repo's
 [Issues](https://github.com/Jond-ie/repo/issues).
 
