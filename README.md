@@ -1,110 +1,107 @@
-# BegoneCIA (Rootless)
+<p align="center"><img src="https://jond-ie.github.io/repo/assets/begonecia.png" width="96" alt=""></p>
 
-A **Rootless and RootHide port** of [**BegoneCIA** by Eva (Nepeta)](https://github.com/larygwil/BegoneCIA) for
-iOS 15–27. (Nepeta's own repository is no longer online; the link is an unofficial mirror of the original source.)
+<h1 align="center">BegoneCIA</h1>
 
-It's a Control Center toggle that silences the **microphone, camera and location** system-wide.
-While it's on, apps don't get a permission error, they just get nothing: silent mic audio,
-no camera input, no location updates. It steps aside during calls (on by default) and in apps you pick.
+<p align="center">
+  <b>One Control Center button that cuts off the camera, mic and location for every app.</b><br>
+  iOS 15–27 · Rootless and RootHide · a port of Nepeta's original
+</p>
 
-Install it from the **[Jond_ie repo](https://jond-ie.github.io/repo/)** (Sileo / Zebra:
-`https://jond-ie.github.io/repo/`). Bugs and requests go to the repo's
-[Issues](https://github.com/Jond-ie/repo/issues).
+<p align="center">
+  <a href="https://jond-ie.github.io/repo/begonecia/"><img src="https://img.shields.io/badge/Website-BegoneCIA-blue" alt="Website"></a>
+  <a href="https://jond-ie.github.io/repo/"><img src="https://img.shields.io/badge/Install-Jond__ie%20repo-blue" alt="Install from the Jond_ie repo"></a>
+  <a href="https://jond-ie.github.io/repo/depictions/com.johndie.begonecia.html"><img src="https://img.shields.io/badge/latest-1.2.1-brightgreen" alt="Latest: 1.2.1"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-lightgrey.svg" alt="MIT"></a>
+</p>
 
-## Credits
+<p align="center">
+  <img src="screenshots/cc.jpg" width="200" alt="The BegoneCIA button in Control Center">
+  <img src="screenshots/settings-27.png" width="200" alt="BegoneCIA settings">
+  <img src="screenshots/apps.png" width="200" alt="Picking apps where BegoneCIA stays off">
+</p>
 
-- **Eva (Nepeta)** wrote the original BegoneCIA and the core technique: silencing the mic
-  inside `mediaserverd`, nulling `CLLocationManager` delegates, and withholding
-  `AVCaptureSession` inputs. All credit for the idea and the original code is hers.
-- **Jond-ie** did the iOS 15–27 Rootless and RootHide port: porting research, on-device testing and
-  debugging, starting on an iPhone 8 Plus (A11) running iOS 16.7 with Dopamine.
-- The port was **AI-assisted**: much of the code was written with Claude Code (Anthropic),
-  directed, tested and verified on-device by Jond-ie.
+## How it works
 
-Licensed MIT, same as the original; see [LICENSE](LICENSE). Nepeta's copyright is kept
-unchanged, and the license also ships inside the package.
+1. **Tap the button** in Control Center. While it's on, every app gets silence from the mic, no camera picture and no location. Apps don't get an error, they just get nothing.
+2. **Calls still work.** Disable in calls is on by default: during a call BegoneCIA steps aside so people can hear you, then comes back when you hang up.
+3. **Pick your exceptions.** In the apps you tick under Disable BegoneCIA for applications, it switches off while they're open.
 
-## What changed for Rootless / iOS 16
+Triggr users can turn it on, off or toggle it from any button or gesture.
+
+## Install
+
+1. Add **https://jond-ie.github.io/repo/** to Sileo or Zebra.
+2. Install **BegoneCIA**. CCSupport, PreferenceLoader, AltList and Cephei come with it (Cephei is on the Chariz repo).
+3. Add the button in **Settings → Control Center**. On iOS 27, open its settings from the TweakSettings app.
+
+RootHide users can also take the `_roothide_` file from [Releases](../../releases).
+
+## Light by design
+
+- **Nothing on a timer.** SpringBoard decides once, when you switch apps or tap the button, and every app follows that one setting. Nothing polls in the background.
+- **No crashes, no nags.** Apps get silence, no picture and no location instead of a permission error, so they keep working.
+- **Private.** BegoneCIA never touches the network and keeps no logs.
+
+A jailbroken phone is less secure overall. BegoneCIA protects your camera, mic and location, but it doesn't change that.
+
+## Tested on
+
+| iPhone | iOS |
+|---|---|
+| 11 Pro | 27.2.1 |
+| SE (2nd gen) | 15.2, 17.5.1, 27.0.1 |
+| 11 Pro Max | 16.2 (with a real phone call) |
+| 11 Pro | 18.6.2 |
+| 8 Plus | 16.7 |
+| 7 | 15.8.6 |
+
+The RootHide build hasn't been on a device yet. If an app still gets through, [open an issue](../../issues) with the app and your iOS version.
+
+<details>
+<summary><strong>How the port works</strong> (for developers)</summary>
+
+### What changed for Rootless
 
 **Build and packaging**
-- `ARCHS = arm64 arm64e`, `TARGET = iphone:clang:latest:15.0` (armv7/armv7s dropped).
-- Built with `THEOS_PACKAGE_SCHEME=rootless`: everything installs under `/var/jb`, and the
-  package architecture is `iphoneos-arm64`.
-- Hooks run through **ellekit** (Dopamine's hook engine). Depends on `ellekit`,
-  `com.opa334.ccsupport` (CCSupport) and `ws.hbang.common` (Cephei).
+- `ARCHS = arm64 arm64e`, built with `THEOS_PACKAGE_SCHEME=rootless` (or RootHide). armv7/armv7s dropped.
+- Hooks run through ElleKit. Depends on `com.opa334.ccsupport`, `ws.hbang.common` (Cephei), PreferenceLoader and AltList.
 - Package id `com.johndie.begonecia`, with `Conflicts`/`Replaces: me.nepeta.begonecia`.
 
-**SDK fixes (iOS 16.5 SDK)**
-- `kNilOptions` → `CFNotificationSuspensionBehaviorCoalesce` for the Darwin notification observer.
-- `#import <UIKit/UIKit.h>` added to the bundled Control Center headers.
-- `Frameworks/ControlCenterUIKit.tbd` patched to include `arm64e` (SpringBoard is arm64e on A12+).
+**Fixes found on devices**
+- **State didn't reach sandboxed apps.** Cephei 2 keeps preferences under `/var/jb`, which apps and `mediaserverd` can't read. The on/off state is mirrored into a Darwin notify state (`notify_set_state`) that every process can read; SpringBoard re-seeds it at launch and decides the per-app state when the front app changes.
+- **Maps bypassed the location block.** MapKit passes its delegate to the `CLLocationManager` designated initializer instead of `-setDelegate:`, so that initializer is hooked too (with a separate variant for iOS 15).
+- **The mic produced noise, not silence.** The AGC buffer is zeroed after processing, and audio read from the RemoteIO / VoiceProcessingIO input bus is zeroed in apps (covers AVAudioEngine).
+- **Siri still heard the mic.** Siri records in `corespeechd` through an AudioQueue; AudioQueue input callbacks are wrapped and handed silence. On iOS 18, `-[CSAudioRecorder voiceControllerAudioCallback:forStream:buffer:]` buffers are zeroed instead.
+- **iOS 17 moved audio processing** into `audiomxd`, which is in the filter.
+- **iOS 27 kills WebKit helpers that get patched audio functions,** so BegoneCIA stays out of `com.apple.WebKit.*` processes (they never need it).
+- **Disable in calls** follows `TUCallCenter` (active, held and dialing calls) and SpringBoard's call events.
 
-**Behavior fixes found on-device (iOS 16)**
-- **State didn't reach sandboxed apps.** Cephei 2 keeps preferences under `/var/jb`, which
-  apps and `mediaserverd` can't read. The on/off state is now mirrored into a Darwin notify
-  state (`notify_set_state`) that every process can read; SpringBoard re-seeds it at launch.
-- **Maps bypassed the location block.** MapKit passes its delegate to the
-  `CLLocationManager` designated initializer instead of `-setDelegate:`, so that initializer
-  is hooked too.
-- **The mic produced noise, not silence.** The AGC buffer is now zeroed after processing
-  (`memset`) instead of being swapped for an uninitialised buffer. Audio read from the
-  RemoteIO / VoiceProcessingIO input bus is also zeroed in apps (covers AVAudioEngine).
-- **Siri still heard the mic** (fixed in `0.2.0-rootless4`). Siri records in `corespeechd`
-  through an AudioQueue (16 kHz, 16-bit PCM), which Begonecia didn't inject into, and its
-  `mediaserverd` chain doesn't use the AGC units silenced above. AudioQueue input callbacks
-  are now wrapped and handed silence while Begonecia is on, and `corespeechd`/`assistantd`
-  are in the filter. This also covers apps that record through AudioQueue.
-- **iOS 18 moved Siri's microphone** (fixed in `1.0.0`). On iOS 18 `corespeechd` gets the mic through
-  AVVoiceController callbacks (`-[CSAudioRecorder voiceControllerAudioCallback:forStream:buffer:]`)
-  instead of an AudioQueue; with Begonecia on, each `AVVCAudioBuffer` is zeroed before CoreSpeech reads it.
-- **iOS 17 moved audio processing** (fixed in `0.2.0-rootless5`). On iOS 17 the audio server's
-  work runs in a new daemon, `audiomxd` (next to `mediaserverd`), so it's now in the filter. Siri's
-  capture on iOS 17 still goes through `corespeechd`'s AudioQueue, which the rootless4 fix covers.
+**Known caveat: the mic AGC subtype.** The `mediaserverd` silencer keys on the voice-processing AGC units (`'agcc'` / `'agc2'`). If camera and location are blocked but the mic still records on your device, build with `BC_DEBUG=1` and look for the `AudioUnitProcess` subtypes in the log.
 
-## Compatibility
+### Building
 
-**iOS 15–27**, Rootless and RootHide (`iphoneos-arm64` and `iphoneos-arm64e` packages). Tested with Dopamine on an
-**iPhone SE (2nd gen, A13, arm64e)** with iOS 17.5.1, an **iPhone 8 Plus (A11)** with iOS 16.7, an
-**iPhone 7 (A10)** with iOS 15.8.6 and an **iPhone 11 Pro** with iOS 18.6.2; iOS 27 confirmed working on a device.
-The RootHide build hasn't been tested on a device yet.
-
-**A12 and newer (arm64e): confirmed** since `0.2.0-rootless5`. On the iPhone SE (2nd gen),
-iOS 17.5.1, an app recording through AVAudioEngine gets exact zeros with Begonecia on and
-normal audio with it off, and Siri's input buffers reach it as silence. (Builds up to
-`0.2.0-rootless1` put A12+ devices into safe mode: their arm64e slice used the old,
-unversioned pointer-authentication ABI. Current builds are made with Xcode's clang.)
-
-## Known caveat: the mic AGC subtype
-
-The `mediaserverd` mic silencer keys on the voice-processing AGC audio units (`'agcc'` /
-`'agc2'`). On the test device (iPhone 8 Plus, iOS 16.7), recording runs through `'agc2'`
-and the mic is silent. Other devices or iOS versions may use a different chain. If camera
-and location are blocked but the mic still records, this is the first thing to check:
-build with `BC_DEBUG=1` (below) and look for the `AudioUnitProcess` subtypes in the log.
-The input-bus zeroing in apps is a second layer, but it doesn't cover every audio path.
-
-## Building
-
-Requires [Theos](https://theos.dev) with the Rootless scheme (or the RootHide one).
+Requires [Theos](https://theos.dev) with the Rootless scheme (or RootHide).
 
 ```bash
 make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 ```
 
-**Your toolchain must emit the versioned arm64e ABI.** Xcode's clang does. Some Linux
-toolchains (e.g. open-source Apple clang 13) don't: they build an arm64e slice marked `0x2`
-that crashes A12+ devices, and the linker warns `built with an incompatible arm64e ABI
-compiler`. Check the result: every binary's arm64e slice should have cpusubtype
-`0x80000002`. If your toolchain can't do that, build `ARCHS=arm64` only. Release packages
-are built on a macOS GitHub Actions runner (Xcode clang, iPhoneOS 16.5 SDK).
+Your toolchain must emit the versioned arm64e ABI (Xcode's clang does): every arm64e slice should have cpusubtype `0x80000002`, or A12 and newer phones go into safe mode. For arm64e builds that also load on iOS 15.0 and 15.1, compile without signed `class_ro` pointers. If your toolchain can't do either, build `ARCHS=arm64` only.
 
-The package is written to `packages/`. To install directly, set `THEOS_DEVICE_IP` and run
-`make package install FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless`.
-
-Debug logging (view on-device with `oslog`):
+Debug logging (view on the device with `oslog`):
 
 ```bash
 make package install THEOS_PACKAGE_SCHEME=rootless BC_DEBUG=1
 ```
 
 `PORT-NOTES.md` has the working notes from the port.
+
+</details>
+
+## License and credits
+
+MIT, same as the original; see [LICENSE](LICENSE). Nepeta's copyright is kept and the licence ships inside the package.
+
+- **BegoneCIA** by **Eva (Nepeta)** ([original source](https://github.com/NepetaDev/BegoneCIA)): the idea, the Control Center module and the core technique.
+- **Rootless and RootHide port** by **Jond_ie** ([Jond_ie repo](https://jond-ie.github.io/repo/), [@Jond_ie](https://x.com/Jond_ie)).
+- Built with [Theos](https://theos.dev/).

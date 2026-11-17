@@ -617,7 +617,6 @@ static void BCRegisterTriggrActions(void) {
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)HBCBPreferencesChanged, (CFStringRef)BCNotification, NULL, CFNotificationSuspensionBehaviorCoalesce);
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)HBCBPreferencesChanged, (CFStringRef)BCLiveNotification, NULL, CFNotificationSuspensionBehaviorCoalesce);
 
-    NSLog(@"[BegoneCIA] Loaded.");
     %init;
     if (springBoard) %init(BCSpringBoard);
     if ([CLLocationManager instancesRespondToSelector:@selector(initWithEffectiveBundleIdentifier:bundle:delegate:silo:)]) %init(BCLocation15);

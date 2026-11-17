@@ -16,7 +16,7 @@
 			<key>cellClass</key>
 			<string>HBTwitterCell</string>
 			<key>label</key>
-			<string>Jond-ie</string>
+			<string>X</string>
 			<key>user</key>
 			<string>Jond_ie</string>
 		</dict>
@@ -56,7 +56,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>BegoneCIA by Jond-ie · original by Nepeta (MIT)</string>
+			<string>BegoneCIA by Jond_ie · original by Nepeta (MIT)</string>
 			<key>isStaticText</key>
 			<true/>
 		</dict>
